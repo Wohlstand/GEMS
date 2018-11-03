@@ -16,21 +16,25 @@
 */
 
 #include <cstdio>
+#include <cstring>
 #include <vector>
 #include <map>
 #include <string>
 #include "common.h"
 #include "instruments.h"
 
+bool ptr3 = true;
+
 void usage()
 {
 	printf(
-"Usage: .exe cfg\n"
+"Usage: .exe cfg [2]\n"
 "\n"
 "      Warning: all outputs will be overwrited automatically.\n"
 "      All outputs will be in directory of \"cfg\" from params.\n"
 "\n"
 "      All configuration parameters placed in config\n"
+"      2 - optional. use 2 bytes ptr in sequences. default is 3.\n"
 "\n"
 "Author: r57shell@uralweb.ru\n");
 	exit(0);
@@ -39,7 +43,7 @@ void usage()
 using namespace std;
 
 enum {TOKEN_SP, TOKEN_NUM, TOKEN_EQ, TOKEN_DEL, TOKEN_NAME, TOKEN_STR};
-char * token_names[] = {"SP","NUM","EQ","DEL","NAME","STR"};
+const char * token_names[] = {"SP","NUM","EQ","DEL","NAME","STR"};
 
 int gettoken(char b)
 {
@@ -205,7 +209,7 @@ bool readline(FILE *f, vector<BYTE> &line, vector<int> &start, vector<int> &end,
 	return true;
 }
 
-int strcmp(const std::vector<BYTE> &line, int start, int end, char *str)
+int strcmp(const std::vector<BYTE> &line, int start, int end, const char *str)
 {
 	for (; start < end && start < line.size(); ++start, ++str)
 		if (line[start]!= *str)
@@ -222,7 +226,7 @@ string getdir(string path)
 	return path.substr(0,j+1);
 }
 
-char *readall_err[]={"ok", "open", "read", "create", "write"};
+const char *readall_err[]={"ok", "open", "read", "create", "write"};
 
 int readall(string path, vector<BYTE> &r)
 {
@@ -281,8 +285,8 @@ struct Parser
 		file = string(path).substr(dir.length());
 	}
 	
-	// cmp token wit text
-	int cmp(int i, char *text) const
+	// cmp token with text
+	int cmp(int i, const char *text) const
 	{
 		return strcmp(line,start[i+current],end[i+current],text);
 	}
@@ -294,7 +298,7 @@ struct Parser
 	}
 	
 	// print error at current line, at certain collumn
-	void printError(int collumn, char *text) const
+	void printError(int collumn, const char *text) const
 	{
 		if (collumn > line.size())
 			collumn = line.size();
@@ -361,7 +365,7 @@ struct Parser
 
 int gems_encode(const Parser &parser, vector<BYTE> &code, int pass, int &op)
 {	
-	static char * opcodes[] = {
+	const char * opcodes[] = {
 	"note",        // 0  1
 	"delay",       // 1  3
 	"duration",    // 2  3
@@ -440,7 +444,7 @@ int gems_encode(const Parser &parser, vector<BYTE> &code, int pass, int &op)
 		if (op == 30)
 			len *= 4;
 		if (op == 31)
-			len *= 3;
+			len *= (ptr3 ? 3 : 2);
 		code.resize(len);
 	}
 	else
@@ -533,7 +537,7 @@ int gems_encode(const Parser &parser, vector<BYTE> &code, int pass, int &op)
 					code[p] = val;
 				}
 				// dc.w
-				if (op == 29)
+				if (op == 29 || (op == 31 && !ptr3)) // and dc.t
 				{
 					if (val < -0x8000 || val > 0xFFFF)
 					{
@@ -559,7 +563,7 @@ int gems_encode(const Parser &parser, vector<BYTE> &code, int pass, int &op)
 						code[p*4+l] = (unsigned char)(val>>(l*8));
 				}
 				// dc.t
-				if (op == 31)
+				if (op == 31 && ptr3)
 				{
 					if (val < -0x800000 || val > 0xFFFFFF)
 					{
@@ -871,7 +875,7 @@ int gems_encode(const Parser &parser, vector<BYTE> &code, int pass, int &op)
 			return 2;
 		}
 		// real conditions, but used ELSE {"=","!=",">",">=","<","<="}
-		static char *ifc[] = {"!=","=","<=","<",">=",">"};
+		const char *ifc[] = {"!=","=","<=","<",">=",">"};
 		int ifc_id = -1;
 		for (int i=0; i<sizeof(ifc)/sizeof(ifc); ++i)
 			if (parser.cmp(cond, ifc[i]) == 0)
@@ -1136,7 +1140,7 @@ int include_instrument(string path)
 		
 		int cid = -1;
 		
-		char *operations[] = {"importraw","DAC"};
+		const char *operations[] = {"importraw","DAC"};
 		for (int i=0; i<sizeof(operations)/sizeof(operations[0]); ++i)
 			if (strcmp(line,start[k],end[k],operations[i]) == 0)
 			{
@@ -1331,7 +1335,7 @@ int include_sample(string path)
 		int cid = -1;
 		int val = 0;
 		
-		char *operations[] = {"FLAGS","SKIP","FIRST","LOOP","END","RAW"};
+		const char *operations[] = {"FLAGS","SKIP","FIRST","LOOP","END","RAW"};
 		for (int i=0; i<sizeof(operations)/sizeof(operations[0]); ++i)
 			if (strcmp(line,start[k],end[k],operations[i]) == 0)
 			{
@@ -1557,7 +1561,7 @@ void include_code(string path, int sequence)
 		
 		int cid = -1;
 		
-		char *operations[] = {"SECTION", "include"};
+		const char *operations[] = {"SECTION", "include"};
 		for (int i=0; i<sizeof(operations)/sizeof(operations[0]); ++i)
 			if (parser.cmp(0,operations[i]) == 0)
 			{
@@ -1795,7 +1799,7 @@ void include_sequence(string path, map<hashed_vector,int> names)
 		
 		int cid = -1;
 		
-		char *operations[] = {"code","instrument","modulation","sample","title","game","author"};
+		const char *operations[] = {"code","instrument","modulation","sample","title","game","author"};
 		for (int i=0; i<sizeof(operations)/sizeof(operations[0]); ++i)
 			if (parser.cmp(0,operations[i]) == 0)
 			{
@@ -2221,7 +2225,7 @@ void sections_init(map<hashed_vector,int> &symbols)
 		sections[i].id = i;
 	}
 
-	static char *section_names[]={"PTRS","HEADER","CODE"};
+	const char *section_names[]={"PTRS","HEADER","CODE"};
 	hashed_vector hv;
 	for (int i=0; i<3; ++i)
 	{
@@ -2234,7 +2238,13 @@ void sections_init(map<hashed_vector,int> &symbols)
 
 int main(int argc, char **args)
 {
-	if (argc != 2)
+	if (argc == 3)
+	{
+		if (strcmp(args[2], "2"))
+			usage();
+		ptr3 = false;
+	}
+	else if (argc != 2)
 		usage();
 	
 	map<hashed_vector,int> symbols;
